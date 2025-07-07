@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<title>WxWindow Control Page</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Control</title>
+    <style>
+        :root {
+  color-scheme: light dark;
+}
+
+body { 
+  font-family: sans-serif;
+  color: light-dark(#333b3c, #fafafa);
+  background-color: light-dark(#efedea, #212121);
+}
+.tab {
+  overflow: hidden;
+  border: 1px solid #ccc;
+  background-color: light-dark(#f1f1f1, #171717);
+}
+
+.tab button {
+  background-color: inherit;
+  float: left;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 14px 16px;
+  transition: 0.3s;
+  font-size: 17px;
+}
+
+.tab button:hover {
+  background-color: light-dark(#ddd, #2f2f2f);
+}
+
+.tab button.active {
+  background-color: light-dark(#ccc, #2f2f2f);
+}
+
+.tabcontent {
+  display: none;
+  padding: 6px 12px;
+  border-top: none;
+}
+
+        .toggle-switch {
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+            background: #ccc;
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .toggle-switch .toggle-knob {
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: 1px;
+            left: 2px;
+            transition: 0.2s;
+        }
+
+        .toggle-switch.active {
+            background: #77e189;
+        }
+
+        .toggle-switch.active .toggle-knob {
+            left: 26px;
+        }
+    </style>
+
+</head>
+<body>
+<h1>WxWindow Control Page</h1>
+<!-- Tab Buttons -->
+<div class="tab">
+  <button class="tablinks" onclick="openTab(event, 'Control')" id="defaultOpen">Control</button>
+  <button class="tablinks" onclick="openTab(event, 'Schedule')">Schedule</button>
+  <button class="tablinks" onclick="openTab(event, 'Upload')">Upload</button>
+  <button class="tablinks" onclick="openTab(event, 'Documentation')">Help</button>
+</div>
+<div id="Control" class="tabcontent">
+    <select id="videoSelect"></select>
+    <button onclick="sendCommand()">▶</button>
+</div>
+<div id="Schedule" class="tabcontent">
+<p><em>If changes do not appear right away, wait a moment and refresh the page.</em></p>
+    <table id="timesTable">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Preset</th>
+                <th>Enabled</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Dynamic rows will be added here -->
+        </tbody>
+    </table>
+</div>
+<div id="Upload" class="tabcontent">
+<p><em>Only .mp4 files can be uploaded. Maximum filesize is 1GB.</em></p>
+    <form id="uploadForm">
+        <input type="file" name="fileToUpload" id="fileToUpload" accept=".mp4" required>
+        <button type="submit">Upload</button>
+    </form>
+</div>
+<div id="Documentation" class="tabcontent">
+<h3>Developed and maintained by <a href="mailto:thomas.smith@woodtv.com?subject=WxWindow">Tom Smith</a></h3></br>
+<em>Cell: (231) 343-9803</em></br>
+<em>Desk Ext.: 4319</em></br>
+<a href="documentation.pdf">Documentation</a>
+<script>
+function openTab(evt, tabName) {
+    document.querySelectorAll(".tabcontent").forEach(tab => tab.style.display = "none");
+    document.querySelectorAll(".tablinks").forEach(tab => tab.classList.remove("active"));
+    document.getElementById(tabName).style.display = "block";
+    evt.currentTarget.classList.add("active");
+}
+
+async function loadTimes() {
+    const response = await fetch("times.json");
+    const timesData = await response.json();
+
+    const tbody = document.querySelector("#timesTable tbody");
+    tbody.innerHTML = ""; // Clear the table
+
+    Object.keys(timesData)
+        .sort((a, b) => a.localeCompare(b)) // Ensure chronological order
+        .forEach(key => appendTableRow(key, timesData[key].preset, timesData[key].enabled));
+
+    appendAddRow(tbody); // Ensure add row is at the bottom
+}
+
+async function loadVideos() {
+        const response = await fetch("list_videos.php");
+        const videos = await response.json();
+        const select = document.getElementById("videoSelect");
+
+        select.innerHTML = ""; // Clear previous entries
+        videos.forEach(video => {
+            let option = document.createElement("option");
+            option.value = video;
+            option.textContent = video;
+            select.appendChild(option);
+        });
+	fetch('command.txt')
+  .then(response => {
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.text();
+  })
+  .then(text => {
+    console.log(text); // Process the text content here
+    let video = text.replace("./videos/","");
+    select.value = video;
+  })
+  .catch(error => {
+    console.error('There was a problem fetching the file:', error);
+  })}
+
+async function updateTime(key, field, value) {
+    const row = [...document.querySelectorAll("#timesTable tbody tr")].find(tr => 
+        tr.querySelector("input[type='time']").value === key
+    );
+
+    if (row) {
+        if (field === "preset") {
+            row.querySelector("select").value = value;
+        } else if (field === "enabled") {
+            const toggle = row.querySelector(".toggle-switch");
+            toggle.classList.toggle("active", value);
+        }
+    }
+
+    const formData = new FormData();
+    formData.append("key", key);
+    formData.append("field", field);
+    formData.append("value", value);
+
+    await fetch("update_time.php", { method: "POST", body: formData });
+
+    loadTimes(); // Reload to re-sort entries
+}
+
+async function addNewEntry(timePicker, presetDropdown, toggle) {
+    const key = timePicker.value;
+    const preset = presetDropdown.value;
+    const enabled = toggle.classList.contains("active");
+
+    if (!key || !preset) {
+        return alert("Please fill in both the time and preset.");
+    }
+
+    appendTableRow(key, preset, enabled);
+    sortTableEntries();
+
+    const formData = new FormData();
+    formData.append("key", key);
+    formData.append("preset", preset);
+    formData.append("enabled", enabled);
+
+    await fetch("add_time.php", { method: "POST", body: formData });
+
+    loadTimes(); // Reload to ensure correct order and placement
+}
+
+function appendTableRow(key, preset, enabled) {
+    const tbody = document.getElementById("timesTable").querySelector("tbody");
+    const row = document.createElement("tr");
+
+    const timeCell = document.createElement("td");
+    const timePicker = document.createElement("input");
+    timePicker.type = "time";
+    timePicker.value = key;
+    timeCell.appendChild(timePicker);
+    row.appendChild(timeCell);
+
+    const presetCell = document.createElement("td");
+    const presetDropdown = document.createElement("select");
+    fetch("list_videos.php")
+        .then(res => res.json())
+        .then(videos => {
+            videos.forEach(video => {
+                const option = document.createElement("option");
+                option.value = video;
+                option.textContent = video;
+                if (video === preset) {
+                    option.selected = true;
+                }
+                presetDropdown.appendChild(option);
+            });
+        });
+    presetCell.appendChild(presetDropdown);
+    row.appendChild(presetCell);
+
+    const toggleCell = document.createElement("td");
+    const toggle = document.createElement("div");
+    toggle.classList.add("toggle-switch");
+    if (enabled) toggle.classList.add("active");
+    const knob = document.createElement("div");
+    knob.classList.add("toggle-knob");
+    toggle.appendChild(knob);
+    toggleCell.appendChild(toggle);
+    row.appendChild(toggleCell);
+
+    const actionCell = document.createElement("td");
+    const deleteButton = document.createElement("button");
+    deleteButton.textContent = "Delete";
+    deleteButton.onclick = () => deleteEntry(key);
+    actionCell.appendChild(deleteButton);
+    row.appendChild(actionCell);
+
+    tbody.appendChild(row);
+
+    toggle.addEventListener("click", () => {
+        toggle.classList.toggle("active");
+        updateTime(key, "enabled", toggle.classList.contains("active"));
+    });
+
+    presetDropdown.addEventListener("change", (e) => {
+        updateTime(key, "preset", e.target.value);
+    });
+
+    timePicker.addEventListener("blur", () => handleTimeChange(key, timePicker));
+    timePicker.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            handleTimeChange(key, timePicker);
+        }
+    });
+
+    sortTableEntries();
+}
+
+function sortTableEntries() {
+    const tbody = document.querySelector("#timesTable tbody");
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+
+    // Remove the add row before sorting
+    const addRow = rows.pop();
+
+    rows.sort((a, b) => {
+        const timeA = a.querySelector("input[type='time']").value;
+        const timeB = b.querySelector("input[type='time']").value;
+        return timeA.localeCompare(timeB);
+    });
+
+    tbody.innerHTML = ""; // Clear table
+    rows.forEach(row => tbody.appendChild(row));
+    tbody.appendChild(addRow); // Re-add add row at the bottom
+}
+
+async function deleteEntry(key) {
+    document.querySelectorAll("#timesTable tbody tr").forEach(row => {
+        if (row.querySelector("input[type='time']").value === key) {
+            row.remove();
+        }
+    });
+
+    const formData = new FormData();
+    formData.append("key", key);
+
+    await fetch("delete_time.php", { method: "POST", body: formData });
+
+    loadTimes(); // Reload to maintain sorting and add row position
+}
+
+function appendAddRow(tbody) {
+    const addRow = document.createElement("tr");
+    
+    const timeCell = document.createElement("td");
+    const timePicker = document.createElement("input");
+    timePicker.type = "time";
+    timeCell.appendChild(timePicker);
+    addRow.appendChild(timeCell);
+
+    const presetCell = document.createElement("td");
+    const presetDropdown = document.createElement("select");
+    fetch("list_videos.php")
+        .then(res => res.json())
+        .then(videos => {
+            videos.forEach(video => {
+                const option = document.createElement("option");
+                option.value = video;
+                option.textContent = video;
+                presetDropdown.appendChild(option);
+            });
+        });
+    presetCell.appendChild(presetDropdown);
+    addRow.appendChild(presetCell);
+
+    const toggleCell = document.createElement("td");
+    const toggle = document.createElement("div");
+    toggle.classList.add("toggle-switch");
+    const knob = document.createElement("div");
+    knob.classList.add("toggle-knob");
+    toggle.appendChild(knob);
+    toggleCell.appendChild(toggle);
+    addRow.appendChild(toggleCell);
+
+    const actionCell = document.createElement("td");
+    const addButton = document.createElement("button");
+    addButton.textContent = "Add";
+    addButton.onclick = () => addNewEntry(timePicker, presetDropdown, toggle);
+    actionCell.appendChild(addButton);
+    addRow.appendChild(actionCell);
+
+    tbody.appendChild(addRow);
+}
+
+async function handleTimeChange(oldKey, timePicker) {
+        const newKey = timePicker.value;
+        if (newKey !== oldKey) {
+            // First, delete the old entry with the old key
+            await deleteEntry(oldKey, true);
+            
+            // Then, update the entry with the new key
+            const row = timePicker.closest('tr');
+            const preset = row.querySelector('select').value;
+            const enabled = row.querySelector('.toggle-switch').classList.contains("active");
+            await addUpdatedEntry(newKey, preset, enabled, row, timePicker);
+        }
+    }
+
+    // Helper function for deleting an entry by key
+    async function deleteEntry(key, isUpdated = false) {
+        const formData = new FormData();
+        formData.append("key", key);
+
+        const response = await fetch("delete_time.php", {
+            method: "POST",
+            body: formData
+        });
+
+        const result = await response.text();
+        console.log(result);
+
+        if (isUpdated) {
+            loadTimes(); // Reload after deletion and update
+        }
+    }
+
+ async function addUpdatedEntry(key, preset, enabled, row, timePicker) {
+        const formData = new FormData();
+        formData.append("key", key);
+        formData.append("preset", preset);
+        formData.append("enabled", enabled);
+
+        const response = await fetch("add_time.php", {
+            method: "POST",
+            body: formData
+        });
+
+        const result = await response.text();
+        console.log(result);
+
+        // After successfully updating the entry, update the UI time picker
+        timePicker.value = key; // Update the time picker with the new key value
+
+        loadTimes(); // Reload the table to reflect changes
+    }
+
+async function sendCommand() {
+        const selectedVideo = document.getElementById("videoSelect").value;
+        if (!selectedVideo) return alert("Please select a video.");
+
+        const formData = new FormData();
+        formData.append("video", "./videos/" + selectedVideo);
+
+        const response = await fetch("send_command.php", {
+            method: "POST",
+            body: formData
+        });
+
+        const result = await response.text();
+        console.log(result);
+    }
+document.getElementById("uploadForm").addEventListener("submit", function(event) {
+            event.preventDefault(); // Prevent normal form submission
+
+            let formData = new FormData();
+            let fileInput = document.getElementById("fileToUpload");
+
+            if (fileInput.files.length === 0) {
+                alert("Please select an MP4 file to upload.");
+                return;
+            }
+
+            formData.append("fileToUpload", fileInput.files[0]);
+
+            fetch("upload.php", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.text()) // Get response as text
+            .then(data => {
+                alert(data); // Show response in an alert dialog
+            })
+            .catch(error => {
+                alert("Upload failed. Please try again.");
+                console.error("Error:", error);
+            });
+        });
+document.addEventListener("DOMContentLoaded", () => {
+document.getElementById("defaultOpen").click()
+    loadVideos();
+    loadTimes();
+
+   });
+</script>
+
+</body>
+</html>

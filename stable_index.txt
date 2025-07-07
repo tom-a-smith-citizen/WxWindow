@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+	    cursor: none;
+        }
+
+        #main1, #main2, #main3 {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 1; /* Default opacity for main1 and main3 */
+            transition: opacity 1s ease; /* Smooth opacity transition */
+        }
+
+        #main2 {
+            z-index: 3; /* Transition video on top */
+            opacity: 1; /* No need to toggle opacity for transition video */
+        }
+
+        #main1 {
+            z-index: 1; /* The video behind */
+        }
+
+        #main3 {
+            z-index: 2; /* The video in front */
+        }
+    </style>
+    <script>
+        window.onload = function () {
+            let lastCommand = ""; // Variable to track the last received command
+            let lastVisible = "main1"; // Variable to track which video is currently visible
+            let nextVideo = "main3"; // Variable to track the next div for video loading
+	    let lastChangedTime = ""; // Variable to keep the video from changing every ten seconds
+
+            // Fetch the initial source for main1 from command.txt
+            fetch("command.txt")
+                .then(response => response.text())
+                .then(data => {
+                    const initialSrc = data.trim(); // Get the video URL from the file
+                    console.log("Initial video source from command.txt:", initialSrc);
+
+                    // Set the initial video source for main1
+                    const main1 = document.getElementById("main1");
+                    const main1Video = document.getElementById("1clip1");
+                    main1Video.src = initialSrc; // Set the src of the first video
+                    main1.style.opacity = 1; // Make main1 visible initially
+                    main1Video.play(); // Start playing main1 immediately
+                })
+                .catch(error => {
+                    console.error("Error fetching command.txt:", error);
+                });
+
+            const eventSource = new EventSource("sse.php");
+
+            eventSource.onmessage = function(event) {
+                console.log("SSE Message Received:", event.data);
+                const data = JSON.parse(event.data);
+
+                if (data.command && data.command !== lastCommand) { // Only act if the command is new
+                    console.log("New command:", data.command);
+                    changeVideo(data.command);
+                    lastCommand = data.command; // Update the last received command
+                }
+            };
+
+// Fetch the time-specific video mapping from a JSON file
+            function fetchVideoForTime() {
+                fetch("times.json")
+                    .then(response => response.json())
+                    .then(data => {
+                        // Get the current time formatted as HH:mm (24-hour format)
+                        const currentTime = new Date();
+                        const hours = String(currentTime.getHours()).padStart(2, '0'); // Format as two digits
+                        const minutes = String(currentTime.getMinutes()).padStart(2, '0'); // Format as two digits
+                        const currentTimeFormatted = `${hours}:${minutes}`;
+                        console.log("Current Time:", currentTimeFormatted);
+
+                        // Check if the current time exists as a key in the JSON
+                        if (data[currentTimeFormatted] && currentTimeFormatted !== lastChangedTime) {
+                            const videoSrc = data[currentTimeFormatted];
+                            console.log("Video for this time:", videoSrc);
+                            changeVideo(videoSrc);
+                            lastChangedTime = currentTimeFormatted; // Update the last changed time
+                        } else {
+                            console.log("No video available for this time or already changed.");
+                        }
+                    })
+                    .catch(error => {
+                        console.error("Error fetching times.json:", error);
+                    });
+            }
+
+            // Set an interval to check every minute for time-based video change
+            setInterval(fetchVideoForTime, 10000); // Check every 10,000 milliseconds (10 seconds)
+
+            // Initial video check on page load
+            fetchVideoForTime();
+
+            function changeVideo(newSrc) {
+                console.log("Changing video to:", newSrc);
+
+                let main1 = document.getElementById("1clip1");
+                let main2 = document.getElementById("2clip2");
+                let main3 = document.getElementById("3clip3");
+
+                // Load new video into the next div (alternating between main1 and main3)
+                if (nextVideo === "main3") {
+                    main3.src = newSrc; // Load new video into main3
+                } else {
+                    main1.src = newSrc; // Load new video into main1
+                }
+
+                // Play transition video
+                main2.play(); // Transition video plays for 0.5 seconds before switching
+                main2.currentTime = 0; // Reset the transition video to start from the beginning
+
+                // Wait for 0.5 seconds into the transition animation before switching
+                setTimeout(() => {
+                    // Ensure that the transition video is playing before continuing
+                    if (main2.currentTime > 0 && !main2.paused) {
+                        // Wait for 0.5 seconds before switching the video
+                        setTimeout(() => {
+                            // Fade out the current visible video and fade in the new one
+                            if (lastVisible === "main1") {
+                                main1.style.opacity = 0; // Hide old video
+                                main3.style.opacity = 1; // Show new video
+                                lastVisible = "main3"; // Update visibility tracking
+                                nextVideo = "main1"; // Next video should go to main1
+                            } else {
+                                main3.style.opacity = 0; // Hide old video
+                                main1.style.opacity = 1; // Show new video
+                                lastVisible = "main1"; // Update visibility tracking
+                                nextVideo = "main3"; // Next video should go to main3
+                            }
+                        }, 500); // Wait for 0.5 seconds before switching the video
+                    }
+                }, 100); // Short wait to ensure the transition video has started
+            }
+        };
+
+    </script>
+</head>
+<body>
+    <div id="main1"><video id="1clip1" autoplay loop muted></video></div>
+    <div id="main2"><video id="2clip2" src="./videos/transition.webm" muted></video></div>
+    <div id="main3"><video id="3clip3" autoplay loop muted></video></div>
+</body>
+</html>
